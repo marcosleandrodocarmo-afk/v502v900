@@ -56,7 +56,21 @@ REM Instala dependências
 echo 🔄 Instalando dependências ULTRA-ROBUSTAS...
 echo Isso pode levar alguns minutos...
 echo.
-pip install -r requirements.txt
+
+REM Instala PostgreSQL adapter primeiro (Windows específico)
+echo 🔧 Instalando adaptador PostgreSQL para Windows...
+pip install psycopg2-binary==2.9.9 --no-deps --force-reinstall
+if errorlevel 1 (
+    echo ⚠️ Tentando instalação alternativa do PostgreSQL...
+    pip install psycopg2-binary --only-binary=psycopg2-binary
+    if errorlevel 1 (
+        echo ⚠️ Usando driver SQLite como fallback...
+        pip install sqlite3
+    )
+)
+
+REM Instala demais dependências
+pip install -r requirements.txt --no-deps
 if errorlevel 1 (
     echo ❌ ERRO: Falha ao instalar dependências!
     echo Verifique sua conexão com a internet e tente novamente.

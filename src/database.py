@@ -9,7 +9,17 @@ import os
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-from services.supabase_client import supabase_client
+
+# Tenta importar Supabase, usa fallback se falhar
+try:
+    from services.supabase_client import supabase_client
+    HAS_SUPABASE = True
+except ImportError:
+    HAS_SUPABASE = False
+    supabase_client = None
+
+# Importa fallback
+from services.database_fallback import database_fallback
 from services.local_file_manager import local_file_manager
 import json
 
@@ -20,14 +30,28 @@ class DatabaseManager:
     
     def __init__(self):
         """Inicializa gerenciador com Supabase e arquivos locais"""
-        self.supabase = supabase_client
+        # Tenta usar Supabase, fallback para SQLite
+        if HAS_SUPABASE and supabase_client and supabase_client.is_connected():
+            self.supabase = supabase_client
+            self.use_fallback = False
+            logger.info("✅ Database Manager usando Supabase")
+        else:
+            self.supabase = database_fallback
+            self.use_fallback = True
+            logger.info("⚠️ Database Manager usando SQLite (fallback)")
+            
         self.local_files = local_file_manager
         
-        logger.info("✅ Database Manager inicializado com Supabase + Local Files")
+        db_type = "SQLite Fallback" if self.use_fallback else "Supabase"
+        logger.info(f"✅ Database Manager inicializado com {db_type} + Local Files")
     
     def test_connection(self) -> bool:
         """Testa conexão com o banco"""
-        return self.supabase.test_connection()
+        try:
+            return self.supabase.test_connection()
+        except Exception as e:
+            logger.error(f"❌ Erro ao testar conexão: {e}")
+            return False
     
     def create_analysis(self, analysis_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Cria nova análise no banco e salva localmente"""
@@ -104,15 +128,21 @@ class DatabaseManager:
     
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estatísticas do banco"""
-        # Combina estatísticas do Supabase e arquivos locais
-        supabase_stats = self.supabase.get_stats()
+        # Combina estatísticas do banco e arquivos locais
+        try:
+            db_stats = self.supabase.get_stats()
+        except Exception as e:
+            logger.error(f"❌ Erro ao obter stats do banco: {e}")
+            db_stats = {'error': str(e), 'total_analyses': 0}
+            
         local_analyses = self.local_files.list_local_analyses()
         
         return {
-            **supabase_stats,
+            **db_stats,
             'local_analyses_count': len(local_analyses),
             'local_analyses': local_analyses[:10],  # Últimas 10
-            'storage_type': 'hybrid_supabase_local'
+            'storage_type': f'hybrid_{"sqlite" if self.use_fallback else "supabase"}_local',
+            'fallback_mode': self.use_fallback
         }
     
     def get_analysis_files(self, analysis_id: str) -> List[Dict[str, Any]]:
